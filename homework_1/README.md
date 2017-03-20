@@ -28,7 +28,6 @@ Mesos赋予了集群框架拒绝被提供的资源的能力。一个集群框架
 ![](./picture04.png)
 
 ### 4.运行Spark on Mesos(说明)，以不同并行度运行两次wordcount程序并比较，需要在报告中详细说明并附资源使用情况及时间花费截图
-
 + 根据Running Spark on Mesos的步骤进行设置。下载Spark之后，需要对conf/spark-env.sh和conf/spark-default.conf做一些修改。
 
 ### 5.叙述自己对这些软件技术与具体安装运行过程的看法，对于觉得存在问题的地方可以自己查阅资料或咨询助教
