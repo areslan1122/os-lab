@@ -9,6 +9,7 @@
 ###  docker run : 创建一个新的容器并且运行一个命令
 + 语法： docker run [OPTIONS] IMAGE [COMMAND] [ARG...]
 + option 说明
+```
 --add-host	 			Add a custom host-to-IP mapping (host:ip)
 --attach, -a	 		Attach to STDIN, STDOUT or STDERR    将容器中运行中的进程依附到控制台上
 --blkio-weight			Block IO (relative weight), between 10 and 1000, or 0 to disable 
@@ -106,6 +107,7 @@
 --volume-driver	 		Optional volume driver for the container
 --volumes-from	 		Mount volumes from the specified container(s)
 --workdir, -w	 		Working directory inside the container
+```
 + 实例
 docker run hello-world
 
@@ -151,6 +153,7 @@ docker save -o my_ubuntu.tar ubnutu
 ### docker network creat: 创建网络
 + 语法：docker network creat [OPTIONS] NETWORK
 + option 说明：
+```
 --attachable		Enable manual container attachment
 --aux-address		Auxiliary IPv4 or IPv6 addresses used by Network driver
 --driver, -d		Driver to manage the Network
@@ -163,12 +166,14 @@ docker save -o my_ubuntu.tar ubnutu
 --label	 		Set metadata on a network
 --opt, -o		Set driver specific options
 --subnet	 	Subnet in CIDR format that represents a network segment
+```
 + 实例
 docker network create -d overlay \
 
 ### docker build: 从指定路径下的Dockerfile 中建立一个镜像
 + 语法：docker build [OPTIONS] PATH | URL | -
 + option 说明：
+```
 --build-arg	 				Set build-time variables
 --cache-from	 			Images to consider as cache sources
 --cgroup-parent	 			Optional parent cgroup for the container
@@ -195,6 +200,7 @@ docker network create -d overlay \
 --squash					Squash newly built layers into a single new layer
 --tag, -t	 				Name and optionally a tag in the ‘name:tag’ format
 --ulimit	 				Ulimit options
+```
 + 实例：
 docker build .
 ## 3.创建一个基础镜像为ubuntu的docker镜像，随后再其中加入nginx服务器，之后启动nginx服务器并利用tail命令将访问日志输出到标准输出流。要求该镜像中的web服务器主页显示自己编辑的内容，编辑的内容包含学号和姓名。之后创建一个自己定义的network，模式为bridge，并让自己配的web服务器容器连到这一网络中。要求容器所在宿主机可以访问这个web服务器搭的网站。请在报告中详细阐述搭建的过程和结果。
