@@ -205,13 +205,15 @@ docker network create -d overlay \
 docker build .
 ## 3.创建一个基础镜像为ubuntu的docker镜像，随后再其中加入nginx服务器，之后启动nginx服务器并利用tail命令将访问日志输出到标准输出流。要求该镜像中的web服务器主页显示自己编辑的内容，编辑的内容包含学号和姓名。之后创建一个自己定义的network，模式为bridge，并让自己配的web服务器容器连到这一网络中。要求容器所在宿主机可以访问这个web服务器搭的网站。请在报告中详细阐述搭建的过程和结果。
 
-+ 以可交互的终端模式下运行ubuntu容器的bash命令, 将容器命名为nginx,将容器的80端口映射到宿主机上的2000号端口
++ 以可交互的终端模式下运行ubuntu容器的bash命令, 将容器命名为nginx,将容器的80端口映射到宿主机上的3000号端口
   docker run -it - -name  nginx 3000:80 ubuntu bash
 
 + 加入nginx 并启动
+```
 apt-get update
 apt-get install -y nginx
 nginx
+```
 
 ## 4.尝试让docker容器分别加入四个不同的网络模式:null,bridge,host,overlay。请查阅相关资料和docker文档，阐述这些网络模式的区别
 + host模式
