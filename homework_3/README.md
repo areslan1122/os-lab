@@ -114,20 +114,24 @@ docker run hello-world
 ### docker images: 列出本地镜像
 + 语法：docker images [OPTIONS] [REPOSITORY[:TAG]]
 + option 说明
+```
 -a :列出本地所有的镜像（含中间映像层，默认情况下，过滤掉中间映像层）；
 --digests :显示镜像的摘要信息；
 -f :显示满足条件的镜像；
 --format :指定返回值的模板文件；
 --no-trunc :显示完整的镜像信息；
 -q :只显示镜像ID。
+```
 + 实例
 ![](./docker-ubuntu.png)
 
 ### docker pull : 从镜像仓库中拉取或者更新指定镜像
 + 语法: docker pull [OPTIONS] NAME[:TAG|@DIGEST]
 + option　说明
+```
 -a :拉取所有 tagged 镜像
 --disable-content-trust :忽略镜像的校验,默认开启
+```
 + 实例
 docker pull java
 
@@ -135,18 +139,22 @@ docker pull java
 ### docker stop :停止一个运行中的容器
 ### docker restart :重启容器
 + 语法
-docker start [OPTIONS] CONTAINER [CONTAINER...]
-docker stop [OPTIONS] CONTAINER [CONTAINER...]
-docker restart [OPTIONS] CONTAINER [CONTAINER...]
++ docker start [OPTIONS] CONTAINER [CONTAINER...]
++ docker stop [OPTIONS] CONTAINER [CONTAINER...]
++ docker restart [OPTIONS] CONTAINER [CONTAINER...]
 + 实例
+```
 docker start myrunoob
 docker stop myrunoob
 docker restart myrunoob
+```
 
 ### docker save : 将指定镜像保存成 tar 归档文件。
 + 语法：docker save [OPTIONS] IMAGE [IMAGE...]
 + option 说明
+```
 -o :输出到的文件
+```
 + 实例
 docker save -o my_ubuntu.tar ubnutu
 
@@ -233,8 +241,8 @@ bridge模式是Docker默认的网络设置，此模式会为每一个容器分�
 
 ## 5.阅读mesos中负责与docker交互的代码，谈谈mesos是怎样与docker进行交互的，并介绍docker类中run函数大致做了什么
 代码位于mesos-1.1.0/src/docker中
-有docker.cpp、docker.hpp、executor.cpp、executor.hpp和spec.cpp五个文件
-docker.hpp头文件中定义了Docker类，该类内部又定义了Container和Imagg两个类。docker.cpp文件实现了Docker类中的成员函数，主要负责将参数与docker指令一一对应。比较重要的函数有create,run，stop，kill，rm等等
++ 有docker.cpp、docker.hpp、executor.cpp、executor.hpp和spec.cpp五个文件
++ docker.hpp头文件中定义了Docker类，该类内部又定义了Container和Imagg两个类。docker.cpp文件实现了Docker类中的成员函数，主要负责将参数与docker指令一一对应。比较重要的函数有create,run，stop，kill，rm等等
 
 ### run函数大致如下
 + 获取所运行的docker的信息
@@ -257,4 +265,4 @@ docker.hpp头文件中定义了Docker类，该类内部又定义了Container和I
 
 + 指定运行目录并运行
 ![](./mesos-docker7.png)
-## 6.写一个framework
+## 6.写一个framework，以容器的方式运行task，运行前面保存的nginx服务器镜像，网络为HOST，运行后，外部主机可以通过访问宿主ip+80端口来访问这个服务器搭建的网站，网站内容包含学号和姓名。报告中对源码进行说明，并附上源码和运行的相关截图。
