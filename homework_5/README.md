@@ -293,12 +293,12 @@ weave默认基于UDP承载容器之间的数据包，并且可以完全自定义
 + 支持主机间通信加密。
 + 支持跨主机多子网通信
 
-####Calico劣势
+#### Calico劣势
 + Calico仅支持TCP, UDP, ICMP andICMPv6协议。
 + Calico没有加密数据路径。 用不可信网络上的Calico建立覆盖网络是不安全的。
 + 没有IP重叠支持。
 
-####Weave劣势
+#### Weave劣势
 + 网络封装是一种传输开销，对网络性能会有影响，不适用于对网络性能要求高的生产场景。
 
 ## 6.编写一个mesos framework，使用calico容器网络自动搭建一个docker容器集群（docker容器数量不少于三个），并在其中一个容器中部署jupyter notebook。运行后外部主机可以通过访问宿主机ip+8888端口使用jupyter notebook对docker集群进行管理。
