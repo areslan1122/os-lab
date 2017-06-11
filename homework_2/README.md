@@ -48,3 +48,189 @@ Mesos运行在集群上。而传统的操作系统上的程序是运行在单机
 DRF算法的源码位于mesos-1.1.0/src/master/allocator/sorter/drf文件夹中，sorter.cpp用来对framework进行排序、add、remove、update等操作。mesos-1.1.0/src/master/allocator/mesos/hierarchical.cpp文件是分层分配器，它调用了sorter.cpp和sorter.hpp进行功能上的具体实现。
 
 ## 5. 写一个完成简单工作的框架(语言自选，需要同时实现scheduler和executor)并在Mesos上运行，在报告中对源码进行说明并附上源码，本次作业分数50%在于本项的完成情况、创意与实用程度。（后面的参考资料一定要读，降低大量难度）
+使用python语言，扩展了豆瓣的pymesos/examples文件夹下的scheduler.py和executor.py，使用蒙特卡洛法计算π的值。
++ Pi_scheduler.py如下
+
+```
+#!/usr/bin/env python2.7
+from __future__ import print_function
+
+import sys
+import uuid
+import time
+import socket
+import signal
+import getpass
+from threading import Thread
+from os.path import abspath, join, dirname
+
+from pymesos import MesosSchedulerDriver, Scheduler, encode_data, decode_data
+from addict import Dict
+
+TASK_CPU = 1
+TASK_MEM = 32
+EXECUTOR_CPUS = 0.5
+EXECUTOR_MEM = 32
+
+
+class PiScheduler(Scheduler):
+    # 初始化一些变量
+    Pi = 0
+    sumPi = 0
+    count = 20
+    i = 0
+    temp = 0
+    nums = 2000000
+
+    def __init__(self, executor):
+        self.executor = executor
+
+    # 计算Pi的值，判断何时停止运行
+    def frameworkMessage(self, driver, executorId, slaveId, message):
+        self.sumPi = self.sumPi + float(decode_data(message))
+        self.temp = self.temp + 1
+        if self.temp >= self.count:
+            self.Pi = self.sumPi/self.count
+            print(self.Pi)
+            driver.stop()
+
+    def resourceOffers(self, driver, offers):
+        if self.i >= self.count:
+            return None
+        filters = {'refuse_seconds': 5}
+
+        for offer in offers:
+            if self.i >= self.count:
+                break
+            cpus = self.getResource(offer.resources, 'cpus')
+            mem = self.getResource(offer.resources, 'mem')
+            if cpus < TASK_CPU or mem < TASK_MEM:
+                continue
+
+            task = Dict()
+            task_id = str(uuid.uuid4())
+            task.task_id.value = task_id
+            task.agent_id.value = offer.agent_id.value
+            task.name = 'task {}'.format(task_id)
+            task.executor = self.executor
+            # 保留以作测试用 ：）
+            task.data = encode_data('Hello from task {}!'.format(task_id))
+
+            task.resources = [
+                dict(name='cpus', type='SCALAR', scalar={'value': TASK_CPU}),
+                dict(name='mem', type='SCALAR', scalar={'value': TASK_MEM}),
+            ]
+
+            driver.launchTasks(offer.id, [task], filters)
+            self.i = self.i + 1
+
+    def getResource(self, res, name):
+        for r in res:
+            if r.name == name:
+                return r.scalar.value
+        return 0.0
+
+    def statusUpdate(self, driver, update):
+        logging.debug('Status update TID %s %s',
+                      update.task_id.value,
+                      update.state)
+
+
+def main(master):
+    executor = Dict()
+    executor.executor_id.value = 'PiExecutor'
+    executor.name = executor.executor_id.value
+    executor.command.value = '%s %s' % (
+        sys.executable,
+        abspath(join(dirname(__file__), 'executor.py'))
+    )
+    executor.resources = [
+        dict(name='mem', type='SCALAR', scalar={'value': EXECUTOR_MEM}),
+        dict(name='cpus', type='SCALAR', scalar={'value': EXECUTOR_CPUS}),
+    ]
+
+    framework = Dict()
+    framework.user = getpass.getuser()
+    framework.name = "PiFramework"
+    framework.hostname = socket.gethostname()
+
+    driver = MesosSchedulerDriver(
+        PiScheduler(executor),
+        framework,
+        master,
+        use_addict=True,
+    )
+
+    def signal_handler(signal, frame):
+        driver.stop()
+
+    def run_driver_thread():
+        driver.run()
+
+    driver_thread = Thread(target=run_driver_thread, args=())
+    driver_thread.start()
+
+    print('Scheduler running, wait :).')
+    signal.signal(signal.SIGINT, signal_handler)
+
+    while driver_thread.is_alive():
+        time.sleep(1)
+
+```
+
++ Pi_executor.py文件如下：
+
+```
+#!/usr/bin/env python2.7
+from __future__ import print_function
+
+import sys
+from random import random
+import time
+from threading import Thread
+
+from pymesos import MesosExecutorDriver, Executor, decode_data, encode_data
+from addict import Dict
+
+
+class PiExecutor(Executor):
+    def launchTask(self, driver, task):
+        def run_task(task):
+            update = Dict()
+            update.task_id.value = task.task_id.value
+            update.state = 'TASK_RUNNING'
+            update.timestamp = time.time()
+            driver.sendStatusUpdate(update)
+
+            # 保留以作测试用
+            print(decode_data(task.data), file=sys.stderr)
+            cnt = 0 
+            N = 2000000
+            for i in range(N) :  
+                x = random()
+                y = random()
+                if (x*x + y*y) < 1 :  
+                    cnt += 1  
+            vPi = 4.0 * cnt / N 
+            print(vPi)
+            driver.sendFrameworkMessage(encode_data(str(vPi)))
+
+            time.sleep(30)
+
+            update = Dict()
+            update.task_id.value = task.task_id.value
+            update.state = 'TASK_FINISHED'
+            update.timestamp = time.time()
+            driver.sendStatusUpdate(update)
+
+        thread = Thread(target=run_task, args=(task,))
+        thread.start()
+
+
+if __name__ == '__main__':
+    import logging
+    logging.basicConfig(level=logging.DEBUG)
+    driver = MesosExecutorDriver(PiExecutor(), use_addict=True)
+    driver.run()
+```
+
