@@ -213,16 +213,60 @@ docker network create -d overlay \
 docker build .
 ## 3.创建一个基础镜像为ubuntu的docker镜像，随后再其中加入nginx服务器，之后启动nginx服务器并利用tail命令将访问日志输出到标准输出流。要求该镜像中的web服务器主页显示自己编辑的内容，编辑的内容包含学号和姓名。之后创建一个自己定义的network，模式为bridge，并让自己配的web服务器容器连到这一网络中。要求容器所在宿主机可以访问这个web服务器搭的网站。请在报告中详细阐述搭建的过程和结果。
 
-+ 以可交互的终端模式下运行ubuntu容器的bash命令, 将容器命名为nginx,将容器的80端口映射到宿主机上的3000号端口
-  docker run -it - -name  nginx 3000:80 ubuntu bash
-
-+ 加入nginx 并启动
++ 拉取镜像
 ```
-apt-get update
-apt-get install -y nginx
+sudo docker pull  ubuntu:latest
+```
++ 创建并启动容器
+```
+docker run -i -t --name ubuntu_docker -p 9999:80 ubuntu /bin/bash
+```
++ 在创建的容器中安装ngix
+```
+apt update
+apt install nginx
+```
++ 安装vim
+```
+apt install vim
+```
++ 修改主页内容
+```
+cd /var/www/html/
+vim index.nginx-debian.html
+```
++ 启动nginx服务器
+```
+cd ..
+cd ..
+cd ..
 nginx
 ```
-
++ 输出访问日志到标准输出流
+```
+tail -f /var/log/nginx/access.log
+```
++ 创建自定义网络,停止容器
+```
+exit
+```
++ 保存镜像
+```
+docker commit ubuntu_docker ubuntu_docker2
+```
++ 创建并运行带新镜像的容器
+```
+docker run -d --name hw_docker -p 9999:80 ubuntu_docker2 nginx -g 'daemon off;'
+```
++ 创建一个自己定义的network，模式为bridge
+```
+docker network create hw_network
+```
++ 将容器连入网络并检查
+```
+docker network connect hw_network hw_docker
+docker network inspect hw_network
+```
 ## 4.尝试让docker容器分别加入四个不同的网络模式:null,bridge,host,overlay。请查阅相关资料和docker文档，阐述这些网络模式的区别
 + host模式
 Docker使用了Linux的Namespaces技术来进行资源隔离，如PID Namespace隔离进程，Mount Namespace隔离文件系统，Network Namespace隔离网络等。一个Network Namespace提供了一份独立的网络环境，包括网卡、路由、Iptable规则等都与其他的Network Namespace隔离。一个Docker容器一般会分配一个独立的Network Namespace。但如果启动容器的时候使用host模式，那么这个容器将不会获得一个独立的Network Namespace，而是和宿主机共用一个Network Namespace。容器将不会虚拟出自己的网卡，配置自己的IP等，而是使用宿主机的IP和端口。
@@ -266,3 +310,136 @@ bridge模式是Docker默认的网络设置，此模式会为每一个容器分�
 + 指定运行目录并运行
 ![](./mesos-docker7.png)
 ## 6.写一个framework，以容器的方式运行task，运行前面保存的nginx服务器镜像，网络为HOST，运行后，外部主机可以通过访问宿主ip+80端口来访问这个服务器搭建的网站，网站内容包含学号和姓名。报告中对源码进行说明，并附上源码和运行的相关截图。
+
+延续上一次作业的内容，使用pymesos库，基于python实现
++ scheduler.py
+
+```
+#!/usr/bin/env python2.7
+from __future__ import print_function
+
+import sys
+import uuid
+import time
+import socket
+import signal
+import getpass
+from threading import Thread
+from os.path import abspath, join, dirname
+
+from pymesos import MesosSchedulerDriver, Scheduler, encode_data, decode_data
+from addict import Dict
+
+TASK_CPU = 1
+TASK_MEM = 32
+EXECUTOR_CPUS = 0.5
+EXECUTOR_MEM = 32
+TASK_NUM = 1
+
+
+class DockerScheduler(Scheduler):
+
+    def __init__(self):
+        self.launched_task = 0
+
+    def resourceOffers(self, driver, offers):
+        filters = {'refuse_seconds': 5}
+
+        for offer in offers:
+            cpus = self.getResource(offer.resources, 'cpus')
+            mem = self.getResource(offer.resources, 'mem')
+            if self.launched_task == TASK_NUM:
+                return
+            if cpus < TASK_CPU or mem < TASK_MEM:
+                continue
+
+
+            task = Dict()
+            task_id = str(uuid.uuid4())
+            task.task_id.value = task_id
+            task.agent_id.value = offer.agent_id.value
+
+            # Container Info
+            task.name = 'docker'
+            task.container.type = 'DOCKER'
+            task.container.docker.image = 'ubuntu_docker2'
+            task.container.docker.network = 'HOST'
+
+            # Command Info
+            task.command.shell = False
+            task.command.value = 'nginx'
+            task.command.arguments=['-g','daemon off;']
+
+            task.resources = [
+                dict(name='cpus', type='SCALAR', scalar={'value': TASK_CPU}),
+                dict(name='mem', type='SCALAR', scalar={'value': TASK_MEM}),
+            ]
+
+            self.launched_task += 1
+            driver.launchTasks(offer.id, [task], filters)
+            
+
+    def getResource(self, res, name):
+        for r in res:
+            if r.name == name:
+                return r.scalar.value
+        return 0.0
+
+    def statusUpdate(self, driver, update):
+        logging.debug('Status update TID %s %s',
+                      update.task_id.value,
+                      update.state)
+
+
+def main(master):
+    framework = Dict()
+    framework.user = getpass.getuser()
+    framework.name = "DockerFramework"
+    framework.hostname = socket.gethostname()
+
+    driver = MesosSchedulerDriver(
+        DockerScheduler(),
+        framework,
+        master,
+        use_addict=True,
+    )
+
+    def signal_handler(signal, frame):
+        driver.stop()
+
+    def run_driver_thread():
+        driver.run()
+
+    driver_thread = Thread(target=run_driver_thread, args=())
+    driver_thread.start()
+
+    print('Scheduler running, wait :).')
+    signal.signal(signal.SIGINT, signal_handler)
+
+    while driver_thread.is_alive():
+        time.sleep(1)
+
+
+if __name__ == '__main__':
+    import logging
+    logging.basicConfig(level=logging.DEBUG)
+    if len(sys.argv) != 2:
+        print("Usage: {} <mesos_master>".format(sys.argv[0]))
+        sys.exit(1)
+    else:
+        main(sys.argv[1])
+```
+与样例的主要区别：
+
+```
+# Container Info
+task.name = 'docker'
+task.container.type = 'DOCKER'
+task.container.docker.image = 'ubuntu_docker2'
+task.container.docker.network = 'HOST'
+
+# Command Info
+task.command.shell = False
+task.command.value = 'nginx'
+task.command.arguments=['-g','daemon off;']
+```
