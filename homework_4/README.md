@@ -79,7 +79,7 @@ GFS将整个系统的节点分为三类角色：Client（客户端）、Master�
 ![](./gfs1.png)
 客户端在访问GFS时，首先访问Master节点，获取将要与之进行交互的Chunk Server信息，然后直接访问这些Chunk Server完成数据存取。GFS的这种设计方法实现了控制流和数据流的分离。Client与Master之间只有控制流，而无数据流，这样就极大地降低了Master的负载，使之不成为系统性能的一个瓶颈。Client与Chunk Server之间直接传输数据流，同时由于文件被分成多个Chunk进行分布式存储，Client可以同时访问多个Chunk Server，从而使得整个系统的I/O高度并行，系统整体性能得到提高。
 
-## 安装配置一种分布式文件系统，要求启动容错机制，即一台存储节点挂掉仍然能正常工作。在报告里阐述搭建过程和结果。
+## 2.安装配置一种分布式文件系统，要求启动容错机制，即一台存储节点挂掉仍然能正常工作。在报告里阐述搭建过程和结果。
 + 安装的分布式系统是GlusterFS
  Step 1 – Have at least two nodes
  Step 2 - Format and mount the bricks
@@ -113,3 +113,91 @@ Step 6 - Testing the GlusterFS volume
  ls -lA /data/brick1/gv0
 ```
 
+## 3.将web服务器的主页提前写好在分布式文件系统里，在docker容器启动的时候将分布式文件系统挂载到容器里，并将该主页拷贝到正确的路径下，使得访问网站时显示这个主页
+
++ 在1001和1002上分别新建一个brick来存储主页内容
+```
+mkdir -p /data/brick2
+```
++ 在1002创建复制卷homepage，并启动该卷
+```
+gluster volume create homepage replica 2 server1:/data/brick2 server2:/data/brick2 force
+gluster volume start homepage
+```
+
++ 在1003上创建挂载点，挂载homepage卷
+```
+mkdir -p /html
+mount -t glusterfs server2:/homepage /html
+```
++ 存入主页文件
+```
+vim /html/index.nginx-debian.html 
+```
++ 在1003上创建容器并运行nginx,
++ 在1002中以上次作业的ubuntu_docker2镜像创建容器hw4_docker，运行bash
+```
+docker run -it --name hw4_docker  ubuntu_docker2  /bin/bash 
+```
++ 进入新创建的容器后，修改/etc/nginx/sites-enabled/default中root的路径为/html
+```
+vim /etc/nginx/sites-enabled/default
+```
++ 修改完成后退出容器，将该容器保存为ubuntu_docker_hw4镜像
+```
+docker commit hw4_docker ubuntu_docker_hw4
+```
++ 将该镜像从1002传送到1003上
+```
+docker save -o save.tar ubuntu_docker_hw4
+```
++ 在1003中以ubuntu_docker_hw4镜像创建后台容器并运行nginx，将/html挂载到容器中的/html中，将容器的80端口映射到宿主机的4040端口
+
+## 4.Docker中使用了联合文件系统来提供镜像服务，了解docker的镜像机制，并仿照其工作机制完成一次镜像的制作，具体要求为:创建一个docker容器，找到其文件系统位置，并将其保存，然后在该容器中安装几个软件包，找到容器的只读层（保存着这几个软件包），将其保存，之后通过aufs将这两个保存的文件系统挂载起来，使用docker import命令从其中创建镜像，并从该镜像中创建容器，要求此时可以使用之前安装好的软件包。在报告中详细阐述过程。
+### docker的镜像机制
++ docker镜像的内容
+主要包含两个部分：镜像层文件内容和镜像json文件。容器是一个动态的环境，每一层镜像中的文件属于静态内容，然而Dockerfile中的ENV、VOLUME、CMD等内容最终都需要落实到容器的运行环境中，而这些内容均不可能直接坐落到每一层镜像所包含的文件系统内容中，因此每一个docker镜像还会包含json文件记录与容器之间的关系。
+
++ docker镜像存储位置
+docker镜像层的内容一般在docker根目录的aufs路径下，为 /var/lib/docker/aufs/diff/；对于每一个镜像层，docker都会保存一份相应的 json文件，json文件的存储路径为 /var/lib/docker/graph
+
++ 通过ubuntu镜像创建一个docker容器，命名为hw4，并启动
+```
+docker create -it --name hw4 ubuntu /bin/bash
+docker start -i hw4
+```
+
++ 再开一个新的终端以查看容器的挂载记录
+```
+df -hT
+```
+
++ 保存层级信息,创建新的目录用来保存
+```
+mkdir /home/pkusei/hw_images
+```
++ 保存到创建的目录下
++ 切换到原来的终端，在容器中安装软件
+```
+apt update
+apt install nginx
+apt install vim
+```
+
++ 切换到另一个终端，保存
++ 使用aufs挂载保存的镜像
+```
+mkdir /home/pkusei/hw_mount
+mount -t aufs -o br=/home/pkusei/hw_images/software=ro\
+```
+
++ 从挂载点创建新镜像
+```
+cd /home/pkusei/hw_mount
+tar -c . | docker import - hw4_image
+```
+
++ 从该镜像中创建容器，使用软件包
+```
+docker run -it --name hw4_image_docker hw4_image /bin/bash
+```
