@@ -302,3 +302,306 @@ weave默认基于UDP承载容器之间的数据包，并且可以完全自定义
 + 网络封装是一种传输开销，对网络性能会有影响，不适用于对网络性能要求高的生产场景。
 
 ## 6.编写一个mesos framework，使用calico容器网络自动搭建一个docker容器集群（docker容器数量不少于三个），并在其中一个容器中部署jupyter notebook。运行后外部主机可以通过访问宿主机ip+8888端口使用jupyter notebook对docker集群进行管理。
+
++ 安装etcd：
+
+```
+$ apt-get install etcd
+```
+
++ 安装calico：
+
+```
+$ sudo wget -O /usr/local/bin/calicoctl https://github.com/projectcalico/calicoctl/releases/download/v1.1.3/calicoctl
+$ sudo chmod +x /usr/local/bin/calicoctl
+```
+
++ 安装 configurable-http-proxy
+
+```
+$ apt-get install -y npm nodejs-legacy
+$ npm install -g configurable-http-proxy
+```
+
++ 分别制作安装好ssh与jupyter的镜像。在每台虚拟机中：
+
+```
+$ mkdir /root/ssh
+$ cd /root/ssh 
+$ vim Dockerfile
+
+FROM ubuntu:latest
+
+RUN apt-get update
+RUN apt-get install ssh
+
+RUN useradd -m calico
+RUN echo "admin:calico" | chpasswd
+
+RUN mkdir /var/run/sshd
+
+USER root
+EXPOSE 22
+CMD ["/usr/sbin/sshd","-D"]
+```
+
++ 制作jupyter镜像Dockerfile如下：
+
+```
+FROM ubuntu:latest
+
+RUN apt-get update
+RUN apt-get install ssh
+RUN apt-get install python3-pip
+RUN pip3 install jupyter
+
+RUN useradd -m calico
+RUN echo "admin:calico" | chpasswd
+
+# 创建sshd使用的目录
+RUN mkdir /var/run/sshd
+
+USER calico
+EXPOSE 22
+WORKDIR /home/calico
+```
+
++ 运行docker build命令制作镜像
+
+```
+$ docker build -t ubuntu-ssh /root/ssh
+$ docker build -t ubuntu-jupyter /root/jupyter
+```
+
++ 配置etcd集群,并使用etcdctl cluster-health检查状态，
++ 配置Docker daemon
+
+```
+$ service docker stop
+$ dockerd --cluster-store etcd://THISIP:2379 &
+```
+
++ 配置calico网络
+
+```
+$ cat << EOF | calicoctl apply -f -
+- apiVersion: v1
+  kind: ipPool
+  metadata:
+    cidr: 192.168.0.0/16
+  spec:
+    nat-outgoing: true
+EOF
+```
+
++ 在一台主机上创建docker 网络
++ 运行mesos
+
+```
+$ sudo mesos-master \
+--ip=<1001_ip> \
+--work_dir=/var/lib/mesos
+$ sudo mesos-agent \
+--master=<1000_ip:5050> \
+--ip=<agent_ip> \
+--work_dir=/var/lib/mesos
+```
+
++ 在1000上启动scheduler：
+
+```
+#!/usr/bin/env python2.7
+from __future__ import print_function
+
+import re
+import sys
+import uuid
+import logging
+import time
+import socket
+import signal
+import getpass
+import subprocess
+from threading import Thread
+from os.path import abspath, join, dirname
+
+from pymesos import MesosSchedulerDriver, Scheduler, encode_data
+from addict import Dict
+
+
+
+TASK_CPU = 0.1
+TASK_MEM = 32
+TASK_NUM = 5
+EXECUTOR_CPUS = 0.1
+EXECUTOR_MEM = 32
+
+AGENT_1="62fda860-dc03-41ba-8abd-ca9444f83cfc-S1"
+AGENT_2="62fda860-dc03-41ba-8abd-ca9444f83cfc-S0"
+
+class MyScheduler(Scheduler):
+
+    def __init__(self):
+        self.task_launched = 0
+
+    def resourceOffers(self, driver, offers):
+        filters = {'refuse_seconds': 5}
+
+        if self.task_launched == TASK_NUM:
+            return
+
+        for offer in offers:
+            if self.task_launched==TASK_NUM:
+                return
+
+            cpus = self.getResource(offer.resources, 'cpus')
+            mem = self.getResource(offer.resources, 'mem')
+            if cpus < TASK_CPU or mem < TASK_MEM:
+                continue
+
+            if self.task_launched ==0:
+                agent_id = offer.agent_id.value
+                if agent_id==AGENT_1:
+                    subprocess.Popen(['/usr/local/bin/configurable-http-proxy'])
+                else:
+                    subprocess.Popen(['/usr/local/bin/configurable-http-proxy'])
+                networkInfo=Dict()
+                networkInfo.name='calico_test_net'
+                ip=Dict()
+                ip.key='ip'
+                ip.value='192.168.0.1'
+                dockerInfo=Dict()
+                dockerInfo.image='ubuntu-jupyter'
+                dockerInfo.newtork='USER'
+                dockerInfo.parameters=[ip]
+                containerInfo=Dict()
+                containerInfo.type='DOCKER'
+                containerInfo.docker=dockerInfo
+                containerInfo.network_infos=[networkInfo]
+                commandInfo=Dict()
+                commandInfo.shell=False
+                task=Dict()
+                task_id=str(self.task_launched+1)
+                task.task_id.value=task_id
+                task.agent_id.value=offer.agent_id.value
+                task.name='jupyter'
+                task.container=containerInfo
+                task.command=commandInfo
+
+                task.resources = [
+                    dict(name='cpus', type='SCALAR', scalar={'value': TASK_CPU}),
+                    dict(name='mem', type='SCALAR', scalar={'value': TASK_MEM}),
+                ]
+            else:
+                networkInfo=Dict()
+                networkInfo.name='calico_test_net'
+                ip=Dict()
+                ip.key='ip'
+                ip.value='192.168.0.'+str(self.task_launched+1)
+                dockerInfo=Dict()
+                dockerInfo.image="ubuntu-ssh"
+                dockerInfo.network='USER'
+                dockerInfo.parameters=[ip]
+                containerInfo=Dict()
+                containerInfo.type='DOCKER'
+                containerInfo.docker=dockerInfo
+                containerInfo.network_infos=[networkInfo]
+
+                commandInfo=Dict()
+                commandInfo.shell=False
+                task=Dict()
+                task_id=str(self.task_launched+1)
+                task.task_id.value=task_id
+                task.agent_id.value=offer.agent_id.value
+                                task.name='jupyter'
+                task.container=containerInfo
+                task.command=commandInfo
+
+                task.resources = [
+                    dict(name='cpus', type='SCALAR', scalar={'value': TASK_CPU}),
+                    dict(name='mem', type='SCALAR', scalar={'value': TASK_MEM}),
+                ]
+            else:
+                networkInfo=Dict()
+                networkInfo.name='calico_test_net'
+                ip=Dict()
+                ip.key='ip'
+                ip.value='192.168.0.'+str(self.task_launched+1)
+                dockerInfo=Dict()
+                dockerInfo.image="ubuntu-ssh"
+                dockerInfo.network='USER'
+                dockerInfo.parameters=[ip]
+                containerInfo=Dict()
+                containerInfo.type='DOCKER'
+                containerInfo.docker=dockerInfo
+                containerInfo.network_infos=[networkInfo]
+
+                commandInfo=Dict()
+                commandInfo.shell=False
+                task=Dict()
+                task_id=str(self.task_launched+1)
+                task.task_id.value=task_id
+                task.agent_id.value=offer.agent_id.value
+                task.name='ssh'
+                task.container=containerInfo
+                task.command=commandInfo
+                task.resources = [
+                    dict(name='cpus', type='SCALAR', scalar={'value': TASK_CPU}),
+                    dict(name='mem', type='SCALAR', scalar={'value': TASK_MEM}),
+                ]
+
+            driver.launchTasks(offer.id, [task], filters)
+            self.task_launched+=1
+
+    def getResource(self, res, name):
+        for r in res:
+            if r.name == name:
+                return r.scalar.value
+        return 0.0
+
+    def statusUpdate(self, driver, update):
+        logging.debug('Status update TID %s %s',
+                      update.task_id.value,
+                      update.state)
+def main(master):
+
+    framework = Dict()
+    framework.user = getpass.getuser()
+    framework.name = "JupyterFramework"
+    framework.hostname = socket.gethostname()
+
+    driver = MesosSchedulerDriver(
+        MyScheduler(),
+        framework,
+        master,
+        use_addict=True,
+    )
+
+    def signal_handler(signal, frame):
+        driver.stop()
+
+    def run_driver_thread():
+        driver.run()
+
+    driver_thread = Thread(target=run_driver_thread, args=())
+    driver_thread.start()
+
+    print('Scheduler running, Ctrl+C to quit.')
+    signal.signal(signal.SIGINT, signal_handler)
+
+    while driver_thread.is_alive():
+        time.sleep(1)
+
+
+if __name__ == '__main__':
+    import logging
+    logging.basicConfig(level=logging.DEBUG)
+    if len(sys.argv) <2:
+        print("Usage: {} <mesos_master>".format(sys.argv[0]))
+        sys.exit(1)
+    else:
+        main(sys.argv[1])
+
+```
+
+![jupyter](./jupyter.png)
